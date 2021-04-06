@@ -1,0 +1,42 @@
+cse508hw3
+Name: Minqi Shi
+ID: 111548035
+Attacker OS: Ubuntu 20.04.2 LTS
+Victim OS: Microsoft Windows XP Professional 5.1.2600 Service Pack 3 Build 2600
+
+
+
+Part 1: 
+
+In this part, I develop an DNS spoofer. I set the default BPFfilter to udp and dst port 53 and not src <attacker's ip> as dnsspoof does.
+It basically sniff for any DNS query packets in the shared media and make fake responses.
+The fake response is built on the query sniffed. It would simply swap the SrcMac and DstMac, SrcIP and DstIP, SrcPort and DstIP and set QR to 1.
+If RD is 1, set RA to 1.
+If an hostnames file is given, the fake response would use the hostnames file as an reference (to put the fake ip in the answer section)
+Otherwise, the answer section will have the attacker's ip for all fake responses.
+After all is done, do a new checksum and send this to the victim.
+
+I set up the victim DNS resolver to 109.69.8.51(puntCAT) in Barcelona, Spain, in order to win the race easier.
+
+To perform an attack, I have a fake html file named "index.html" and I set up an server using python2 with the follwoing command:
+
+sudo python2 -m SimpleHTTPServer 80
+
+Then I use the following command to check the result of the race:
+
+sudo tcpdump -ttt -en udp and src port 53
+
+Part of an Sample output: (This time I won the race)
+ 00:00:07.837901 00:50:56:f3:69:27 > 00:0c:29:34:b6:93, ethertype IPv4 (0x0800), length 118: 109.69.8.51.53 > 192.168.137.134.54801: 35954 1/0/0 A 192.168.137.132 (76)
+ 00:00:00.705476 00:50:56:f3:69:27 > 00:0c:29:34:b6:93, ethertype IPv4 (0x0800), length 229: 109.69.8.51.53 > 192.168.137.134.54801: 35954 2/3/3 CNAME wwwui.ecglb.bac.com., A 171.161.116.100 (187)
+
+
+To start the attack, I did this command:
+
+sudo go run src/dnspoison.go -f hostnames
+
+Part of sample output: 
+Sniffed a DNS packet!
+www.bankofamerica.com
+192.168.137.134.58151 > 109.69.8.51.53(domain) 46739+ A? www.bankofamerica.com
+Fake response sent to www.bankofamerica.com
