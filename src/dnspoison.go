@@ -118,7 +118,7 @@ func main() {
 			expr_string += " and dst port 53"
 		}
 		if strings.Index(expr_string, "not src") == -1 {
-			expr_string += "and not src " + current_ip.String()
+			expr_string += " and not src " + current_ip.String()
 		}
 
 		// fmt.Printf("Expr String: %v\n", expr_string)
@@ -181,24 +181,20 @@ func main() {
 		// https://github.com/troyxmccall/gogospoofdns/blob/master/spoof.go
 		// The follwoing steps are inspired from the above website
 		var (
-			ethLayer  layers.Ethernet
-			ipv4Layer layers.IPv4
-			udpLayer  layers.UDP
-			dnsLayer  layers.DNS
-
-			query  layers.DNSQuestion
-			answer layers.DNSResourceRecord
+			ethLayer      layers.Ethernet
+			ipv4Layer     layers.IPv4
+			udpLayer      layers.UDP
+			dnsLayer      layers.DNS
+			decodedLayers []gopacket.LayerType          = make([]gopacket.LayerType, 0, 4)
+			decoder       *gopacket.DecodingLayerParser = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &ethLayer, &ipv4Layer, &udpLayer, &dnsLayer)
+			query         layers.DNSQuestion
+			answer        layers.DNSResourceRecord
+			outbuf        gopacket.SerializeBuffer = gopacket.NewSerializeBuffer()
 		)
 
 		answer.Type = layers.DNSTypeA
 		answer.Class = layers.DNSClassIN
 		answer.TTL = 600
-
-		decoder := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &ethLayer, &ipv4Layer, &udpLayer, &dnsLayer)
-
-		decodedLayers := make([]gopacket.LayerType, 0, 4)
-
-		outbuf := gopacket.NewSerializeBuffer()
 
 		serialOpts := gopacket.SerializeOptions{
 			FixLengths:       true,
@@ -211,7 +207,6 @@ func main() {
 				panic(err)
 			}
 			fmt.Println("-------------------------------------")
-			fmt.Println("Sniffed a DNS packet!")
 
 			if err = decoder.DecodeLayers(packetData, &decodedLayers); err != nil {
 				fmt.Print("There is a decoding error: ")

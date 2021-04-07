@@ -36,7 +36,5 @@ To start the attack, I did this command:
 sudo go run src/dnspoison.go -f hostnames
 
 Part of sample output: 
-Sniffed a DNS packet!
-www.bankofamerica.com
 192.168.137.134.58151 > 109.69.8.51.53(domain) 46739+ A? www.bankofamerica.com
 Fake response sent to www.bankofamerica.com
