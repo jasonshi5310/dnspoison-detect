@@ -40,11 +40,11 @@ func GetOutboundIP() net.IP {
 }
 
 func main() {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Println("", r)
-		}
-	}()
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		fmt.Println("", r)
+	// 	}
+	// }()
 	// fmt.Println("Hello world!")
 	argv := os.Args[1:]      // Argument vector
 	argv_length := len(argv) // Length of the arguments
@@ -206,7 +206,6 @@ func main() {
 			if err != nil {
 				panic(err)
 			}
-			fmt.Println("-------------------------------------")
 
 			if err = decoder.DecodeLayers(packetData, &decodedLayers); err != nil {
 				fmt.Print("There is a decoding error: ")
@@ -234,7 +233,7 @@ func main() {
 				for i := uint16(0); i < dnsLayer.QDCount; i++ {
 					qname := string(dnsLayer.Questions[i].Name)
 					if hostnames[qname] != "" {
-						fmt.Println(string(dnsLayer.Questions[i].Name))
+						// fmt.Println(string(dnsLayer.Questions[i].Name))
 						ip := net.ParseIP(hostnames[qname])
 						answer_ip = ip
 						is_found = true
@@ -250,7 +249,7 @@ func main() {
 			if dnsLayer.RD {
 				dnsLayer.RA = true
 			}
-
+			fmt.Println("-------------------------------------")
 			for i := uint16(0); i < dnsLayer.QDCount; i++ {
 				query = dnsLayer.Questions[i]
 				if !(query.Type == layers.DNSTypeA && query.Class == layers.DNSClassIN) {

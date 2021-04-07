@@ -35,11 +35,9 @@ The output of dnspoison.go when making attack.pcap:
 
 Listening on ens33 [udp and dst port 53 and not src 192.168.137.132]
 -------------------------------------
-www.bankofamerica.com
 192.168.137.134.62025 > 109.69.8.51.53(domain) 20905+ A? www.bankofamerica.com
 Fake response sent to www.bankofamerica.com
 -------------------------------------
-www.tcpdump.org
 192.168.137.134.49900 > 109.69.8.51.53(domain) 59719+ A? www.tcpdump.org
 Fake response sent to www.tcpdump.org
 
@@ -55,6 +53,9 @@ I map it with the victim IP using TXID; when there is a answer, I check if the
 number of answers is bigger than the number of request for the same 
 hostname in a short period of time (I set it to be 800ms). If so, there is an DNSspoof attack. 
 Otherwise, I map the answer packet info to the victim IP using TXID.
+
+Since this detector is built to detect duplicate DNS reply, if the true DNS reply got lost 
+on it's way to the victim, the detector will fail. 
 
 To separate the traffic from one victim to another, I made two wrapper struct:
 

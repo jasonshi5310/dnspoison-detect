@@ -81,6 +81,11 @@ func newPacketInfo(victimIP string, txid string, dnsLayer *layers.DNS, time time
 }
 
 func detectDNSSpoof(packetData []byte, t time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Some unexpected error happened: %v \nBut the detector would continue to work :)...\n", r)
+		}
+	}()
 	if err := decoder.DecodeLayers(packetData, &decodedLayers); err != nil {
 		fmt.Print("There is a decoding error: ")
 		fmt.Println(err)
