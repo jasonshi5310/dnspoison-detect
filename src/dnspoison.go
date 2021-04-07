@@ -6,7 +6,7 @@
 // 	https://pkg.go.dev/github.com/google/gopacket/pcap
 // 	https://golang.org/doc/
 //  https://pkg.go.dev/github.com/google/gopacket@v1.1.19/pcap
-
+//  https://github.com/google/gopacket/blob/master/examples/arpscan/arpscan.go
 package main
 
 import (
@@ -24,6 +24,7 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
+// The function GetOutboundIP() is taken from the following website
 // https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
 // Get preferred outbound ip of this machine
 func GetOutboundIP() net.IP {
@@ -190,16 +191,15 @@ func main() {
 			query         layers.DNSQuestion
 			answer        layers.DNSResourceRecord
 			outbuf        gopacket.SerializeBuffer = gopacket.NewSerializeBuffer()
+			serialOpts                             = gopacket.SerializeOptions{
+				FixLengths:       true,
+				ComputeChecksums: true,
+			}
 		)
 
-		answer.Type = layers.DNSTypeA
 		answer.Class = layers.DNSClassIN
+		answer.Type = layers.DNSTypeA
 		answer.TTL = 600
-
-		serialOpts := gopacket.SerializeOptions{
-			FixLengths:       true,
-			ComputeChecksums: true,
-		}
 
 		for {
 			packetData, _, err := handle.ZeroCopyReadPacketData()
@@ -215,14 +215,14 @@ func main() {
 			}
 
 			if len(decodedLayers) != 4 {
-				fmt.Println("The number of layers is not 4!")
+				// fmt.Println("The number of layers is not 4!")
 				continue
 			}
 
 			answer_ip := current_ip
 
 			if dnsLayer.QR {
-				fmt.Println("Not an query! Stop proceeding and go back to wait...")
+				// fmt.Println("Not an query! Stop proceeding and go back to wait...")
 				continue
 			} else {
 				// Set to response
@@ -242,7 +242,7 @@ func main() {
 					}
 				}
 				if !is_found {
-					fmt.Println("Not a targeted hostname! Go back to wait...")
+					// fmt.Println("Not a targeted hostname! Go back to wait...")
 					continue
 				}
 			}
@@ -269,6 +269,7 @@ func main() {
 
 			}
 
+			// Swap MAC, IP, ports
 			var ethMac_holder net.HardwareAddr = ethLayer.SrcMAC
 			var ipv4Addr_holder net.IP = ipv4Layer.SrcIP
 			var udpPort_holder layers.UDPPort = udpLayer.SrcPort
@@ -282,6 +283,7 @@ func main() {
 			udpLayer.SrcPort = udpLayer.DstPort
 			udpLayer.DstPort = udpPort_holder
 
+			// checksum
 			if err = udpLayer.SetNetworkLayerForChecksum(&ipv4Layer); err != nil {
 				panic(err)
 			}

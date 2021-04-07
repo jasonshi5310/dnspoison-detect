@@ -8,12 +8,13 @@ Victim OS: Microsoft Windows XP Professional 5.1.2600 Service Pack 3 Build 2600
 
 Part 1: 
 
-In this part, I develop an DNS spoofer. I set the default BPFfilter to udp and dst port 53 and not src <attacker's ip> as dnsspoof does.
+In this part, I develop an DNS spoofer. I set the default BPFfilter to 
+udp and dst port 53 and not src <attacker's ip> as dnsspoof does.
 It basically sniff for any DNS query packets in the shared media and make fake responses.
-The fake response is built on the query sniffed. It would simply swap the SrcMac and DstMac, SrcIP and DstIP, SrcPort and DstIP and set QR to 1.
-If RD is 1, set RA to 1.
+The fake response is built on the DNS query sniffed. It would simply swap the SrcMac and DstMac, 
+SrcIP and DstIP, SrcPort and DstIP and set QR to 1. If RD is 1, set RA to 1.
 If an hostnames file is given, the fake response would use the hostnames file as an reference (to put the fake ip in the answer section)
-Otherwise, the answer section will have the attacker's ip for all fake responses.
+Otherwise, the answer section will have the attacker's IP for all fake responses.
 After all is done, do a new checksum and send this to the victim.
 
 I set up the victim DNS resolver to 109.69.8.51(puntCAT) in Barcelona, Spain, in order to win the race easier.
@@ -22,19 +23,79 @@ To perform an attack, I have a fake html file named "index.html" and I set up an
 
 sudo python2 -m SimpleHTTPServer 80
 
-Then I use the following command to check the result of the race:
+Then I use the following command to store the result of the race into attack.pcap:
 
-sudo tcpdump -ttt -en udp and src port 53
+sudo tcpdump -w attack.pcap udp and port 53
 
-Part of an Sample output: (This time I won the race)
- 00:00:07.837901 00:50:56:f3:69:27 > 00:0c:29:34:b6:93, ethertype IPv4 (0x0800), length 118: 109.69.8.51.53 > 192.168.137.134.54801: 35954 1/0/0 A 192.168.137.132 (76)
- 00:00:00.705476 00:50:56:f3:69:27 > 00:0c:29:34:b6:93, ethertype IPv4 (0x0800), length 229: 109.69.8.51.53 > 192.168.137.134.54801: 35954 2/3/3 CNAME wwwui.ecglb.bac.com., A 171.161.116.100 (187)
-
-
-To start the attack, I did this command:
+To start the attack, I did the following command:
 
 sudo go run src/dnspoison.go -f hostnames
 
-Part of sample output: 
-192.168.137.134.58151 > 109.69.8.51.53(domain) 46739+ A? www.bankofamerica.com
+The output of dnspoison.go when making attack.pcap:
+
+Listening on ens33 [udp and dst port 53 and not src 192.168.137.132]
+-------------------------------------
+www.bankofamerica.com
+192.168.137.134.62025 > 109.69.8.51.53(domain) 20905+ A? www.bankofamerica.com
 Fake response sent to www.bankofamerica.com
+-------------------------------------
+www.tcpdump.org
+192.168.137.134.49900 > 109.69.8.51.53(domain) 59719+ A? www.tcpdump.org
+Fake response sent to www.tcpdump.org
+
+In attack.pcap, packet 2 win over packet 3 and spoofed www.bankofamerica.com
+packet 11 win over packet 12 and spoofed www.tcpdump.org
+
+
+
+Part 2
+
+In this part, I listen at udp and port 53 (so both directions). When there is DNS query,
+I map it with the victim IP using TXID; when there is a answer, I check if the 
+number of answers is bigger than the number of request for the same 
+hostname in a short period of time (I set it to be 800ms). If so, there is an DNSspoof attack. 
+Otherwise, I map the answer packet info to the victim IP using TXID.
+
+To separate the traffic from one victim to another, I made two wrapper struct:
+
+This one is for keeping the needed info for each Victim IP
+idPacketInfoMap is for maping TXID to Answer packetInfo
+requestMap is for counting how many DNS requests with the same TXID
+type ipaddr struct {
+	idPacketInfoMap map[string]packetInfo
+	requestMap      map[string]int // map[TXID]counter
+}
+
+
+This one is for keeping track of the Answer packets in the same Victim IP
+Answers is the answers section in a DNS reply
+Time is the time of receiving the DNS reply
+Counter is for counting how many DNS relay with same TXID
+type packetInfo struct {
+	Answers []layers.DNSResourceRecord
+	Time    time.Time
+	Counter int
+}
+
+output of the attack.pcap using dnsdetect:
+sudo go run src/dnsdetect.go -r attack.pcap 
+
+Reading attack.pcap on ens33 [udp and port 53]
+2021-04-06 22:53:06.102493  DNS poisoning attempt
+TXID 0x51a9 Request www.bankofamerica.com
+Answer1: 192.168.137.132
+Answer2: 171.161.116.100
+-------------------------
+2021-04-06 22:53:13.676379  DNS poisoning attempt
+TXID 0xe947 Request www.tcpdump.org
+Answer1: 192.168.137.132
+Answer2: 192.139.46.66
+         159.89.89.188
+-------------------------
+
+
+
+
+
+
+

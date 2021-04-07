@@ -20,13 +20,9 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-// type ipCounter struct {
-// 	IP      net.IP
-// 	Counter int
-// }
 type ipaddr struct {
 	idPacketInfoMap map[string]packetInfo
-	requestMap      map[string]int
+	requestMap      map[string]int // map[TXID]counter
 }
 
 type packetInfo struct {
@@ -43,12 +39,10 @@ var (
 	decodedLayers []gopacket.LayerType          = make([]gopacket.LayerType, 0, 4)
 	decoder       *gopacket.DecodingLayerParser = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &ethLayer, &ipv4Layer, &udpLayer, &dnsLayer)
 	answer        layers.DNSResourceRecord
-	// idPacketInfoMap map[string]packetInfo = make(map[string]packetInfo)
-	// requestMap map[string]int = make(map[string]int)
-	ipMap  map[string]ipaddr = make(map[string]ipaddr)
-	tempID string
-	srcIP  string
-	dstIP  string
+	ipMap         map[string]ipaddr = make(map[string]ipaddr)
+	tempID        string
+	srcIP         string
+	dstIP         string
 )
 
 // Returns a string of Answers
@@ -86,7 +80,7 @@ func newPacketInfo(victimIP string, txid string, dnsLayer *layers.DNS, time time
 	ipMap[victimIP].idPacketInfoMap[txid] = pi
 }
 
-func detectDNSSpoof(packetData []byte, time time.Time) {
+func detectDNSSpoof(packetData []byte, t time.Time) {
 	if err := decoder.DecodeLayers(packetData, &decodedLayers); err != nil {
 		fmt.Print("There is a decoding error: ")
 		fmt.Println(err)
@@ -124,23 +118,7 @@ func detectDNSSpoof(packetData []byte, time time.Time) {
 	}
 	// If not a query, the dstIP is the IP of the victim
 	if _, found := ipMap[dstIP].idPacketInfoMap[tempID]; !found {
-		// var tempAnswer []layers.DNSResourceRecord
-		// if len(dnsLayer.Answers) == 0 {
-		// 	return
-		// }
-		// for i := 0; i < len(dnsLayer.Answers); i++ {
-		// 	tempAnswer = append(tempAnswer, dnsLayer.Answers[i])
-		// }
-		// // fmt.Println("\nhere" + sprintIPFromAnswers(dnsLayer.Answers) + "here\n")
-		// pi := packetInfo{
-		// 	// Bytes:   packetData,
-		// 	Answers: tempAnswer,
-		// 	Time:    time,
-		// }
-		// idPacketInfoMap[tempID] = pi
-
-		// srcIP string, txid string, dnsLayer *layers.DNS, time time.Time, counter int
-		newPacketInfo(dstIP, tempID, &dnsLayer, time, 0)
+		newPacketInfo(dstIP, tempID, &dnsLayer, t, 0)
 		return
 	}
 
@@ -152,27 +130,21 @@ func detectDNSSpoof(packetData []byte, time time.Time) {
 	if _, found := ipMap[dstIP].idPacketInfoMap[tempID]; found {
 		// if this is for different hostname
 		c := ipMap[dstIP].idPacketInfoMap[tempID].Counter
-		if time.Sub(ipMap[dstIP].idPacketInfoMap[tempID].Time) < 800 {
-			newPacketInfo(dstIP, tempID, &dnsLayer, time, c)
+		if t.Sub(ipMap[dstIP].idPacketInfoMap[tempID].Time) > 800*time.Millisecond {
+			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
 			return
 		}
 		if bytes.Compare(ipMap[dstIP].idPacketInfoMap[tempID].Answers[0].Name, dnsLayer.Answers[0].Name) != 0 {
-			newPacketInfo(dstIP, tempID, &dnsLayer, time, c)
+			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
 			return
 		}
-		// fmt.Printf("Time diff: %v\n", time.Sub(idPacketInfoMap[tempID].Time))
 		// If there are more request than answer with the same TXID, it is not an attack
 		if ipMap[dstIP].requestMap[tempID] >= ipMap[dstIP].idPacketInfoMap[tempID].Counter+1 {
-			newPacketInfo(dstIP, tempID, &dnsLayer, time, c)
+			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
 			return
 		}
-		fmt.Printf("Counter request:%v\n", ipMap[dstIP].requestMap[tempID])
-		// if idPacketInfoMap[tempID].Time.Sub(time) > 0 {
-		// 	newPacketInfo(&dnsLayer, time)
-		// 	return
-		// }
 
-		fmt.Printf("%v", time.Format("2006-01-02 15:04:05.000000 "))
+		fmt.Printf("%v", t.Format("2006-01-02 15:04:05.000000 "))
 		fmt.Print(" DNS poisoning attempt\n")
 		fmt.Printf("TXID 0x%v Request %v\n", tempID, string(dnsLayer.Answers[0].Name))
 		fmt.Print("Answer1: ", sprintIPFromAnswers(ipMap[dstIP].idPacketInfoMap[tempID].Answers))
@@ -180,25 +152,14 @@ func detectDNSSpoof(packetData []byte, time time.Time) {
 		fmt.Println("-------------------------")
 
 	}
-	// for i := uint16(0); i < dnsLayer.ANCount; i++ {
-	// 	answer = dnsLayer.Answers[i]
-	// 	if !(answer.Type == layers.DNSTypeA && answer.Class == layers.DNSClassIN) {
-	// 		continue
-	// 	}
-	// 	msg := fmt.Sprint(ipv4Layer.SrcIP) + "." + fmt.Sprint(udpLayer.SrcPort) + " > "
-	// 	msg += fmt.Sprint(ipv4Layer.DstIP) + "." + fmt.Sprint(udpLayer.DstPort)
-	// 	msg += " " + fmt.Sprint(dnsLayer.ID) + "+ " + answer.Type.String() + "?"
-	// 	msg += " " + string(answer.Name)
-	// 	fmt.Println(msg)
-	// }
 }
 
 func main() {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		fmt.Println("", r)
-	// 	}
-	// }()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("", r)
+		}
+	}()
 	// fmt.Println("Hello world!")
 	argv := os.Args[1:]      // Argument vector
 	argv_length := len(argv) // Length of the arguments
