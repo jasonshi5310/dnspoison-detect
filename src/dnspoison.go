@@ -40,11 +40,11 @@ func GetOutboundIP() net.IP {
 }
 
 func main() {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		fmt.Println("", r)
-	// 	}
-	// }()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("", r)
+		}
+	}()
 	// fmt.Println("Hello world!")
 	argv := os.Args[1:]      // Argument vector
 	argv_length := len(argv) // Length of the arguments

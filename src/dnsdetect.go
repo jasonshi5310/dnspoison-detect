@@ -9,7 +9,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -20,7 +19,13 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-type ipaddr struct {
+type ipPortMap struct {
+	// idPacketInfoMap map[string]packetInfo
+	// requestMap      map[string]int // map[TXID]counter
+	ports map[string]portPacketMap // map[Port Number]portPacketMap
+}
+
+type portPacketMap struct {
 	idPacketInfoMap map[string]packetInfo
 	requestMap      map[string]int // map[TXID]counter
 }
@@ -39,10 +44,13 @@ var (
 	decodedLayers []gopacket.LayerType          = make([]gopacket.LayerType, 0, 4)
 	decoder       *gopacket.DecodingLayerParser = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &ethLayer, &ipv4Layer, &udpLayer, &dnsLayer)
 	answer        layers.DNSResourceRecord
-	ipMap         map[string]ipaddr = make(map[string]ipaddr)
-	tempID        string
-	srcIP         string
-	dstIP         string
+	// ipMap         map[string]ipaddr = make(map[string]ipaddr)
+	ipMap   map[string]ipPortMap = make(map[string]ipPortMap)
+	tempID  string
+	srcIP   string
+	dstIP   string
+	srcPort string
+	dstPort string
 )
 
 // Returns a string of Answers
@@ -63,7 +71,7 @@ func sprintIPFromAnswers(Answers []layers.DNSResourceRecord) (s string) {
 }
 
 // Add the new packetInfo to the map
-func newPacketInfo(victimIP string, txid string, dnsLayer *layers.DNS, time time.Time, counter int) {
+func newPacketInfo(victimIP string, victimPort string, txid string, dnsLayer *layers.DNS, time time.Time, counter int) {
 	var tempAnswer []layers.DNSResourceRecord
 	if len(dnsLayer.Answers) == 0 {
 		return
@@ -77,7 +85,7 @@ func newPacketInfo(victimIP string, txid string, dnsLayer *layers.DNS, time time
 		Counter: counter + 1,
 	}
 	// idPacketInfoMap[tempID] = pi
-	ipMap[victimIP].idPacketInfoMap[txid] = pi
+	ipMap[victimIP].ports[victimPort].idPacketInfoMap[txid] = pi
 }
 
 func detectDNSSpoof(packetData []byte, t time.Time) {
@@ -98,32 +106,58 @@ func detectDNSSpoof(packetData []byte, t time.Time) {
 	tempID = fmt.Sprintf("%x", dnsLayer.ID)
 	srcIP = fmt.Sprint(ipv4Layer.SrcIP)
 	dstIP = fmt.Sprint(ipv4Layer.DstIP)
+	srcPort = fmt.Sprint(udpLayer.SrcPort)
+	dstPort = fmt.Sprint(udpLayer.DstPort)
+
 	// If a query, the srcIP is the IP of the victim
 	if !dnsLayer.QR {
 
+		// if an new victim ip
 		if _, found := ipMap[srcIP]; !found {
-			ipMap[srcIP] = ipaddr{
+			ipMap[srcIP] = ipPortMap{
+				ports: make(map[string]portPacketMap),
+			}
+		}
+
+		// if an new victim port
+		if _, found := ipMap[srcIP].ports[srcPort]; !found {
+			ipMap[srcIP].ports[srcPort] = portPacketMap{
 				idPacketInfoMap: make(map[string]packetInfo),
 				requestMap:      make(map[string]int),
 			}
 		}
+
 		// fmt.Println(tempID)
 		// if there is an request, record the TXID and increment the counter
-		if _, found := ipMap[srcIP].requestMap[tempID]; found {
-			ipMap[srcIP].requestMap[tempID] = ipMap[srcIP].requestMap[tempID] + 1
+		if _, found := ipMap[srcIP].ports[srcPort].requestMap[tempID]; found {
+			ipMap[srcIP].ports[srcPort].requestMap[tempID] = ipMap[srcIP].ports[srcPort].requestMap[tempID] + 1
 		} else {
-			ipMap[srcIP].requestMap[tempID] = 1
+			ipMap[srcIP].ports[srcPort].requestMap[tempID] = 1
 		}
 		return
-	} else if _, found := ipMap[dstIP]; !found {
-		ipMap[dstIP] = ipaddr{
-			idPacketInfoMap: make(map[string]packetInfo),
-			requestMap:      make(map[string]int),
+	} else { // If not a query, the dstIP is the IP of the victim
+		if _, found := ipMap[dstIP]; !found {
+			// 	ipMap[dstIP] = ipaddr{
+			// 		idPacketInfoMap: make(map[string]packetInfo),
+			// 		requestMap:      make(map[string]int),
+			// 	}
+			// }
+			ipMap[dstIP] = ipPortMap{
+				ports: make(map[string]portPacketMap),
+			}
+		}
+		// if an new victim port
+		if _, found := ipMap[dstIP].ports[dstPort]; !found {
+			ipMap[dstIP].ports[dstPort] = portPacketMap{
+				idPacketInfoMap: make(map[string]packetInfo),
+				requestMap:      make(map[string]int),
+			}
 		}
 	}
 	// If not a query, the dstIP is the IP of the victim
-	if _, found := ipMap[dstIP].idPacketInfoMap[tempID]; !found {
-		newPacketInfo(dstIP, tempID, &dnsLayer, t, 0)
+	// if a new txid, add the newPacketInfo
+	if _, found := ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID]; !found {
+		newPacketInfo(dstIP, dstPort, tempID, &dnsLayer, t, 0)
 		return
 	}
 
@@ -132,27 +166,28 @@ func detectDNSSpoof(packetData []byte, t time.Time) {
 	// TXID 0x5cce Request www.example.com
 	// Answer1 [List of IP addresses]
 	// Answer2 [List of IP addresses]
-	if _, found := ipMap[dstIP].idPacketInfoMap[tempID]; found {
-		// if this is for different hostname
-		c := ipMap[dstIP].idPacketInfoMap[tempID].Counter
-		if t.Sub(ipMap[dstIP].idPacketInfoMap[tempID].Time) > 800*time.Millisecond {
-			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
-			return
-		}
-		if bytes.Compare(ipMap[dstIP].idPacketInfoMap[tempID].Answers[0].Name, dnsLayer.Answers[0].Name) != 0 {
-			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
-			return
-		}
+	if _, found := ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID]; found {
+		c := ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID].Counter
+		// if same ip, same port, same txid, large time interval, then it's fine
+		// if t.Sub(ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID].Time) > 800*time.Millisecond {
+		// 	newPacketInfo(dstIP, dstPort, tempID, &dnsLayer, t, c)
+		// 	return
+		// }
+		// // if for different hostname, it's fine
+		// if bytes.Compare(ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID].Answers[0].Name, dnsLayer.Answers[0].Name) != 0 {
+		// 	newPacketInfo(dstIP, dstPort, tempID, &dnsLayer, t, c)
+		// 	return
+		// }
 		// If there are more request than answer with the same TXID, it is not an attack
-		if ipMap[dstIP].requestMap[tempID] >= ipMap[dstIP].idPacketInfoMap[tempID].Counter+1 {
-			newPacketInfo(dstIP, tempID, &dnsLayer, t, c)
+		if ipMap[dstIP].ports[dstPort].requestMap[tempID] >= ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID].Counter+1 {
+			newPacketInfo(dstIP, dstPort, tempID, &dnsLayer, t, c)
 			return
 		}
 
 		fmt.Printf("%v", t.Format("2006-01-02 15:04:05.000000 "))
 		fmt.Print(" DNS poisoning attempt\n")
 		fmt.Printf("TXID 0x%v Request %v\n", tempID, string(dnsLayer.Answers[0].Name))
-		fmt.Print("Answer1: ", sprintIPFromAnswers(ipMap[dstIP].idPacketInfoMap[tempID].Answers))
+		fmt.Print("Answer1: ", sprintIPFromAnswers(ipMap[dstIP].ports[dstPort].idPacketInfoMap[tempID].Answers))
 		fmt.Print("Answer2: ", sprintIPFromAnswers(dnsLayer.Answers))
 		fmt.Println("-------------------------")
 
